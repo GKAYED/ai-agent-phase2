@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  ai-agent:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ai-agent-data:/app/data
+    environment:
+      - PORT=3000
+    restart: unless-stopped
+
+volumes:
+  ai-agent-data:

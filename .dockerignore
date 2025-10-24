@@ -1,0 +1,12 @@
+node_modules
+npm-debug.log
+.git
+.github
+.gitignore
+Dockerfile
+README.md
+CHANGELOG.md
+**/.DS_Store
+
+# Exclude local data from image context
+/data

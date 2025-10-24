@@ -1,0 +1,19 @@
+node_modules/
+.tmp/
+.env
+npm-debug.log*
+.DS_Store
+coverage/
+.data/
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+.data/**
+data/**.db
+
+# Logs
+logs
+*.log
+
+# OS
+Thumbs.db

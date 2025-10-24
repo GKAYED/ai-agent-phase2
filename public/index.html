@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI News & Learning Aggregator</title>
+  <style>
+    :root { --accent:#3b82f6; --bg:#0b1020; --card:#11172b; --text:#e8eefc; --muted:#a7b3d0; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+    header { padding: 16px; border-bottom: 1px solid #1c2340; display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+    header h1 { font-size: 18px; margin:0; }
+    button.primary { background: var(--accent); color:#fff; border:none; padding:8px 12px; border-radius:8px; cursor:pointer; }
+    button.ghost { background: transparent; color: var(--text); border: 1px solid #25305a; padding:8px 12px; border-radius:8px; cursor:pointer; }
+    .stats { margin-left:auto; display:flex; gap:12px; font-size:14px; color: var(--muted); }
+    nav { display:flex; gap:8px; padding:12px 16px; border-bottom:1px solid #1c2340; overflow:auto; }
+    .tab { padding:8px 12px; border-radius:999px; border:1px solid #25305a; color: var(--muted); cursor:pointer; white-space:nowrap; }
+    .tab.active { background: #152048; color:#fff; border-color:#2c3b75; }
+    main { padding: 16px; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap:12px; }
+    .card { background: var(--card); border:1px solid #1c2340; border-radius:12px; padding:12px; display:flex; gap:12px; }
+    .card h3 { margin:0 0 6px; font-size:16px; }
+    .meta { font-size:12px; color: var(--muted); margin-bottom:8px; }
+    .actions { display:flex; align-items:center; gap:8px; }
+    .badge { font-size:12px; border:1px solid #2a376e; color:#9fb5ff; padding:2px 6px; border-radius:999px; }
+    .journey { display:grid; gap:16px; max-width:800px; margin:0 auto; }
+    .progress { display:flex; gap:16px; align-items:center; }
+    .circle { width:80px; height:80px; border-radius:50%; border:6px solid #233060; position:relative; }
+    .circle::after { content: attr(data-pct) '%'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-weight:600; color:#cfe0ff; }
+    .milestones { display:flex; gap:8px; flex-wrap:wrap; }
+    .milestone { padding:6px 10px; border-radius:999px; border:1px solid #2a376e; color:#9fb5ff; }
+    .milestone.done { background:#1a2a59; color:#e6edff; border-color:#3b4fa0; }
+
+    /* Celebration modal */
+    .modal { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; }
+    .modal.show { display:flex; }
+    .modal .content { background:#0f1530; border:1px solid #2a376e; border-radius:12px; padding:16px; text-align:center; max-width:360px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI News & Learning Aggregator</h1>
+    <button class="primary" id="fetchBtn">Fetch New Content</button>
+    <div class="stats" id="statsBar">
+      <span>Total: 0</span>
+      <span>Checked: 0</span>
+      <span>News: 0</span>
+      <span>Courses: 0</span>
+      <span>Reading: 0</span>
+    </div>
+  </header>
+  <nav>
+    <div class="tab active" data-tab="all">All</div>
+    <div class="tab" data-tab="news">News</div>
+    <div class="tab" data-tab="courses">Courses</div>
+    <div class="tab" data-tab="reading">Reading</div>
+    <div class="tab" data-tab="journey">Journey</div>
+  </nav>
+  <main>
+    <div id="itemsView" class="grid"></div>
+    <div id="journeyView" class="journey" style="display:none"></div>
+  </main>
+
+  <div class="modal" id="celebrate">
+    <div class="content">
+      <h2>Milestone Achieved! 🎉</h2>
+      <p id="milestoneMsg"></p>
+      <img src="https://media.giphy.com/media/5GoVLqeAOo6PK/giphy.gif" alt="celebration" width="100%" />
+    </div>
+  </div>
+
+  <script>
+    const tabs = document.querySelectorAll('.tab');
+    const itemsView = document.getElementById('itemsView');
+    const journeyView = document.getElementById('journeyView');
+    const celebrate = document.getElementById('celebrate');
+    const milestoneMsg = document.getElementById('milestoneMsg');
+    const statsBar = document.getElementById('statsBar');
+    const fetchBtn = document.getElementById('fetchBtn');
+
+    let activeTab = 'all';
+
+    tabs.forEach(t => t.addEventListener('click', () => {
+      tabs.forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      activeTab = t.dataset.tab;
+      if (activeTab === 'journey') {
+        itemsView.style.display = 'none';
+        journeyView.style.display = '';
+        renderJourney();
+      } else {
+        journeyView.style.display = 'none';
+        itemsView.style.display = '';
+        loadItems();
+      }
+      location.hash = '#' + activeTab;
+    }));
+
+    fetchBtn.addEventListener('click', async () => {
+      fetchBtn.disabled = true;
+      fetchBtn.textContent = 'Fetching…';
+      try {
+        const res = await fetch('/api/fetch', { method: 'POST' });
+        const data = await res.json();
+        await refreshStats();
+        if (activeTab !== 'journey') await loadItems(); else await renderJourney();
+        alert(`Fetched ${data.count} new items`);
+      } catch (e) {
+        alert('Fetch failed');
+        console.error(e);
+      } finally {
+        fetchBtn.disabled = false;
+        fetchBtn.textContent = 'Fetch New Content';
+      }
+    });
+
+    async function refreshStats() {
+      const s = await (await fetch('/api/stats')).json();
+      statsBar.innerHTML = `<span>Total: ${s.total}</span><span>Checked: ${s.checked}</span><span>News: ${s.news}</span><span>Courses: ${s.courses}</span><span>Reading: ${s.reading}</span>`;
+      return s;
+    }
+
+    function cardHtml(item) {
+      const date = item.date ? new Date(item.date).toLocaleDateString() : '';
+      return `
+      <div class="card" id="card-${item.id}">
+        <div style="flex:1">
+          <h3><a href="${item.url || '#'}" target="_blank" rel="noopener">${escapeHtml(item.title)}</a></h3>
+          <div class="meta">${escapeHtml(item.source || '')} • ${date} • <span class="badge">${item.category}</span></div>
+          <div style="color:var(--muted); font-size:14px;">${escapeHtml((item.summary||'').slice(0,200))}</div>
+          <div class="actions" style="margin-top:8px;">
+            <label><input type="checkbox" ${item.checked ? 'checked' : ''} onchange="toggleItem(${item.id}, this)"/> Completed</label>
+            <button class="ghost" onclick="vote(${item.id}, 'up')">👍 <span id="up-${item.id}">${item.upvotes}</span></button>
+            <button class="ghost" onclick="vote(${item.id}, 'down')">👎 <span id="down-${item.id}">${item.downvotes}</span></button>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    async function loadItems() {
+      const params = new URLSearchParams();
+      if (['news','courses','reading'].includes(activeTab)) params.set('category', activeTab);
+      const res = await fetch('/api/items' + (params.toString() ? ('?' + params.toString()) : ''));
+      const items = await res.json();
+      itemsView.innerHTML = items.map(cardHtml).join('');
+    }
+
+    async function toggleItem(id, checkbox) {
+      const original = checkbox.checked;
+      try {
+        const res = await fetch(`/api/items/${id}/toggle`, { method: 'POST' });
+        const data = await res.json();
+        checkbox.checked = data.checked === 1;
+        const stats = await refreshStats();
+        maybeCelebrate(stats.checked);
+      } catch (e) {
+        checkbox.checked = !original; // revert
+        alert('Failed to update item');
+        console.error(e);
+      }
+    }
+
+    async function vote(id, type) {
+      try {
+        const res = await fetch(`/api/items/${id}/vote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type }) });
+        const data = await res.json();
+        document.getElementById('up-' + id).textContent = data.upvotes;
+        document.getElementById('down-' + id).textContent = data.downvotes;
+      } catch (e) {
+        alert('Failed to vote');
+        console.error(e);
+      }
+    }
+
+    async function renderJourney() {
+      const j = await (await fetch('/api/journey')).json();
+      const top = await (await fetch('/api/sources/top')).json();
+      const pct = j.totalChecked ? Math.min(100, Math.round((j.totalChecked / 100) * 100)) : 0; // relative to 100 milestone
+      journeyView.innerHTML = `
+        <div class="progress">
+          <div class="circle" data-pct="${pct}"></div>
+          <div>
+            <div style="font-size:28px; font-weight:700;">${j.totalChecked} items completed</div>
+            <div style="color:var(--muted);">Keep going! 🎯</div>
+          </div>
+        </div>
+        <div>
+          <h3>Milestones</h3>
+          <div class="milestones">
+            ${j.milestones.map(m => `<span class="milestone ${m.achieved ? 'done':''}">${m.count}</span>`).join('')}
+          </div>
+        </div>
+        <div>
+          <h3>Top Sources</h3>
+          <ol>
+            ${top.map(s => `<li>${escapeHtml(s.source || 'Unknown')} — ${s.netVotes} pts</li>`).join('')}
+          </ol>
+        </div>`;
+    }
+
+    function maybeCelebrate(checkedCount) {
+      const milestones = [5,10,20,50,100];
+      if (milestones.includes(checkedCount)) {
+        milestoneMsg.textContent = `${checkedCount} Items Completed`;
+        celebrate.classList.add('show');
+        setTimeout(() => celebrate.classList.remove('show'), 3000);
+        celebrate.addEventListener('click', () => celebrate.classList.remove('show'), { once: true });
+      }
+    }
+
+    function escapeHtml(s) {
+      return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\'':'&#39;'}[c]));
+    }
+
+    (async function init() {
+      if (location.hash) {
+        const h = location.hash.slice(1);
+        const t = Array.from(tabs).find(x => x.dataset.tab === h);
+        if (t) t.click();
+      }
+      await refreshStats();
+      if (activeTab === 'journey') await renderJourney(); else await loadItems();
+    })();
+  </script>
+</body>
+</html>
